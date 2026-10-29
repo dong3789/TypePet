@@ -276,6 +276,7 @@ final class KeyMonitor {
     private(set) var working = false
     private var port: CFMachPort?
     private var retry: Timer?
+    private var loggedTapFailure = false
 
     var hasAccess: Bool { CGPreflightListenEventAccess() }
 
@@ -292,7 +293,7 @@ final class KeyMonitor {
     }
 
     private func install() {
-        guard port == nil, hasAccess else { return }
+        guard port == nil else { return }
         let mask = CGEventMask(1) << CGEventType.keyDown.rawValue
         guard let created = CGEvent.tapCreate(
             tap: .cgSessionEventTap,
@@ -315,7 +316,10 @@ final class KeyMonitor {
             },
             userInfo: nil)
         else {
-            logLine("tap create failed")
+            if !loggedTapFailure {
+                loggedTapFailure = true
+                logLine("tap create failed access=\(hasAccess)")
+            }
             return
         }
         port = created
@@ -323,7 +327,7 @@ final class KeyMonitor {
         CFRunLoopAddSource(CFRunLoopGetMain(), source, .commonModes)
         CGEvent.tapEnable(tap: created, enable: true)
         working = true
-        logLine("tap on")
+        logLine("tap on access=\(hasAccess)")
     }
 }
 
@@ -713,18 +717,20 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
         let access = KeyMonitor.shared.hasAccess
         let working = KeyMonitor.shared.working
         let status = NSMenuItem()
-        if !access {
-            status.title = "⚠️ 키보드 권한이 필요해요 (눌러서 설정 열기)"
-        } else if !working || KeyMonitor.shared.count == 0 {
-            status.title = "키 입력 기다리는 중…"
-        } else {
-            status.title = "✅ 키 입력 감지 중 (\(KeyMonitor.shared.count)회)"
-            status.state = .on
-        }
-        if !access || !working {
+        if working {
+            if KeyMonitor.shared.count == 0 {
+                status.title = "키 입력 기다리는 중…"
+            } else {
+                status.title = "✅ 키 입력 감지 중 (\(KeyMonitor.shared.count)회)"
+                status.state = .on
+            }
+            status.isEnabled = false
+        } else if !access {
+            status.title = "⚠️ 입력 모니터링을 껐다 켜 주세요"
             status.target = self
             status.action = #selector(openPrivacy)
         } else {
+            status.title = "키 입력을 연결하는 중…"
             status.isEnabled = false
         }
         menu.addItem(status)
@@ -912,10 +918,11 @@ rest_00.png … 쉬는 동작
         alert("키보드 입력 권한이 필요해요", info: """
 캐릭터가 타이핑에 맞춰 움직이려면 입력 모니터링 권한이 필요합니다.
 
-시스템 설정 → 개인정보 보호 및 보안 → 입력 모니터링에서 TypePet을 켜 주세요.
+시스템 설정 → 개인정보 보호 및 보안 → 입력 모니터링에서 TypePet 스위치를 한 번 끄고 다시 켜 주세요. 이미 켜져 있어도, 앱을 다시 만들면 예전 권한과 서명이 어긋납니다.
+
 입력한 글자는 보지도 저장하지도 않습니다. 키가 눌렸다는 신호와, 엔터·지우개 구분만 씁니다.
 
-켠 뒤에도 안 움직이면 앱을 한 번 종료했다가 다시 여세요.
+바꾼 뒤에는 앱을 한 번 종료했다가 다시 여세요.
 """)
     }
 

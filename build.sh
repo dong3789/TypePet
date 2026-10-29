@@ -2,6 +2,17 @@
 set -euo pipefail
 cd "$(dirname "$0")"
 ROOT="$PWD"
+
+sign_app() {
+  local target="$1"
+  local ident
+  ident="$(security find-identity -v -p codesigning | sed -n 's/.*"\(Apple Development:.*\)"/\1/p' | head -1)"
+  if [[ -n "$ident" ]]; then
+    codesign --force --sign "$ident" --timestamp=none "$target"
+  else
+    codesign --force --sign - "$target"
+  fi
+}
 swift "$ROOT/generate.swift" "$ROOT/Resources"
 
 ICONDIR="$ROOT/build/AppIcon.iconset"
@@ -36,8 +47,8 @@ cp "$ROOT/Info.plist" "$APP/Contents/Info.plist"
 /usr/libexec/PlistBuddy -c "Set :CFBundleShortVersionString $VER" "$APP/Contents/Info.plist"
 cp -R "$ROOT/Resources/builtin" "$APP/Contents/Resources/builtin"
 cp "$ROOT/Resources/AppIcon.icns" "$APP/Contents/Resources/AppIcon.icns"
-codesign --force --sign - "$APP" >/dev/null
 xattr -cr "$APP" || true
+sign_app "$APP"
 
 if [[ -n "${TYPEPET_STAGE:-}" ]]; then
   rm -rf "$TYPEPET_STAGE"
